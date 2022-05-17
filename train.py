@@ -111,6 +111,8 @@ parser.add_argument('--std', type=float, nargs='+', default=None, metavar='STD',
                     help='Override std deviation of dataset')
 parser.add_argument('--interpolation', default='', type=str, metavar='NAME',
                     help='Image resize interpolation type (overrides model)')
+parser.add_argument('--quadtree', action='store_true', default=False,
+                    help='use quadtree to compress input to model')
 parser.add_argument('-b', '--batch-size', type=int, default=128, metavar='N',
                     help='Input batch size for training (default: 128)')
 parser.add_argument('-vb', '--validation-batch-size', type=int, default=None, metavar='N',
@@ -563,6 +565,9 @@ def main():
         pin_memory=args.pin_mem,
         use_multi_epochs_loader=args.use_multi_epochs_loader,
         worker_seeding=args.worker_seeding,
+        to_quadtree=args.quadtree,
+        patch_size=16,
+        num_patches=100,
     )
 
     loader_eval = create_loader(
@@ -578,6 +583,9 @@ def main():
         distributed=args.distributed,
         crop_pct=data_config['crop_pct'],
         pin_memory=args.pin_mem,
+        to_quadtree=args.quadtree,
+        patch_size=16,
+        num_patches=100,
     )
 
     # setup loss function

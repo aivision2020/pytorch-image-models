@@ -32,7 +32,7 @@ import torch.utils.checkpoint
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
 from .helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
-from .layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+from .layers import PatchEmbed, LinearPatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from .registry import register_model
 
 _logger = logging.getLogger(__name__)
@@ -170,7 +170,10 @@ default_cfgs = {
             '/vit_base_patch16_224_1k_miil_84_4.pth',
         mean=(0, 0, 0), std=(1, 1, 1), crop_pct=0.875, interpolation='bilinear',
     ),
-
+    'vit_small_patch16_224_multires': _cfg(
+        url='https://storage.googleapis.com/vit_models/augreg/'
+            'S_16-i21k-300ep-lr_0.001-aug_light1-wd_0.03-do_0.0-sd_0.0--imagenet2012-steps_20k-lr_0.03-res_224.npz',
+    ),
     'vit_base_patch16_rpn_224': _cfg(
         url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-tpu-weights/vit_base_patch16_rpn_224-sw-3b07e89d.pth'),
 
@@ -326,7 +329,7 @@ class VisionTransformer(nn.Module):
             self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, global_pool='token',
             embed_dim=768, depth=12, num_heads=12, mlp_ratio=4., qkv_bias=True, init_values=None,
             class_token=True, fc_norm=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0., weight_init='',
-            embed_layer=PatchEmbed, norm_layer=None, act_layer=None, block_fn=Block):
+            embed_layer=PatchEmbed, norm_layer=None, act_layer=None, block_fn=Block, num_pos_types=None):
         """
         Args:
             img_size (int, tuple): input image size
@@ -365,10 +368,17 @@ class VisionTransformer(nn.Module):
 
         self.patch_embed = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
-        num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if self.num_tokens > 0 else None
-        self.pos_embed = nn.Parameter(torch.randn(1, num_patches + self.num_tokens, embed_dim) * .02)
+        if num_pos_types is None:
+            self.len_pos_types = None
+            num_patches = self.patch_embed.num_patches
+            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        else:
+            self.len_pos_types = len(num_pos_types)
+            self.pos_embed = torch.nn.ModuleList([
+                torch.nn.Embedding(i, embed_dim//self.len_pos_types)
+                for i in num_pos_types])
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -389,7 +399,10 @@ class VisionTransformer(nn.Module):
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in mode else 0.
-        trunc_normal_(self.pos_embed, std=.02)
+        try:
+            trunc_normal_(self.pos_embed, std=.02)
+        except:
+            pass #no worries. this may be a modules, not weights
         if self.cls_token is not None:
             nn.init.normal_(self.cls_token, std=1e-6)
         named_apply(get_init_weights_vit(mode, head_bias), self)
@@ -428,11 +441,27 @@ class VisionTransformer(nn.Module):
             self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def apply_pos_embed(self,x, pos_information):
+        if pos_information is None:
+            return x + self.pos_embed
+        else:
+            assert x.shape[:2]==pos_information.shape[:2], (x.shape,pos_information.shape)
+            pos_embed = torch.cat([pos_embed(pos_information[:, :, i]) for i, pos_embed in enumerate(self.pos_embed)],
+                    dim=2)
+
+            return x + pos_embed
+
+    def forward_features(self, x, pos_information=None):
         x = self.patch_embed(x)
         if self.cls_token is not None:
             x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
-        x = self.pos_drop(x + self.pos_embed)
+            cls_pos = torch.zeros(1,3).long().to(x.device)
+            cls_pos = cls_pos.expand(x.shape[0], -1, -1)
+
+            if pos_information is not None:
+                pos_information = torch.cat([cls_pos, pos_information], dim=1)
+
+        self.apply_pos_embed(x, pos_information)
         if self.grad_checkpointing and not torch.jit.is_scripting():
             x = checkpoint_seq(self.blocks, x)
         else:
@@ -447,7 +476,12 @@ class VisionTransformer(nn.Module):
         return x if pre_logits else self.head(x)
 
     def forward(self, x):
-        x = self.forward_features(x)
+        if self.len_pos_types is not None:
+            pos_information = x[:, :, -self.len_pos_types:].long()
+            x = x[:, :, :-self.len_pos_types]
+            x = self.forward_features(x, pos_information)
+        else:
+            x = self.forward_features(x)
         x = self.forward_head(x)
         return x
 
@@ -688,6 +722,20 @@ def vit_small_patch16_224(pretrained=False, **kwargs):
     model = _create_vision_transformer('vit_small_patch16_224', pretrained=pretrained, **model_kwargs)
     return model
 
+@register_model
+def vit_small_patch16_224_multires(pretrained=False, **kwargs):
+    """ ViT-Small (ViT-S/16)
+    NOTE I've replaced my previous 'small' model definition and weights with the small variant from the DeiT paper
+    """
+    patch_size=16
+    embed_dim=384
+    model_kwargs = dict(patch_size=patch_size, embed_dim=embed_dim,
+            depth=12, num_heads=6,
+            num_pos_types=(16,16,4),
+            embed_layer=LinearPatchEmbed,
+            **kwargs)
+    model = _create_vision_transformer('vit_small_patch16_224_multires', pretrained=pretrained, **model_kwargs)
+    return model
 
 @register_model
 def vit_small_patch16_384(pretrained=False, **kwargs):

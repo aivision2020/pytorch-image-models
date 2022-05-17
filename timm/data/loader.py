@@ -194,6 +194,9 @@ def create_loader(
         use_multi_epochs_loader=False,
         persistent_workers=True,
         worker_seeding='all',
+        to_quadtree=False,
+        patch_size=16,
+        num_patches=256,
 ):
     re_num_splits = 0
     if re_split:
@@ -220,6 +223,9 @@ def create_loader(
         re_count=re_count,
         re_num_splits=re_num_splits,
         separate=num_aug_splits > 0,
+        to_quadtree=to_quadtree,
+        patch_size=patch_size,
+        num_patches=num_patches,
     )
 
     sampler = None

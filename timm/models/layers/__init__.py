@@ -28,7 +28,7 @@ from .non_local_attn import NonLocalAttn, BatNonLocalAttn
 from .norm import GroupNorm, LayerNorm2d
 from .norm_act import BatchNormAct2d, GroupNormAct
 from .padding import get_padding, get_same_padding, pad_same
-from .patch_embed import PatchEmbed
+from .patch_embed import PatchEmbed, LinearPatchEmbed
 from .pool2d_same import AvgPool2dSame, create_pool2d
 from .squeeze_excite import SEModule, SqueezeExcite, EffectiveSEModule, EffectiveSqueezeExcite
 from .selective_kernel import SelectiveKernel
