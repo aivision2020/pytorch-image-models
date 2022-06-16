@@ -170,7 +170,8 @@ default_cfgs = {
             '/vit_base_patch16_224_1k_miil_84_4.pth',
         mean=(0, 0, 0), std=(1, 1, 1), crop_pct=0.875, interpolation='bilinear',
     ),
-    'vit_small_patch16_224_multires': _cfg(
+    'vit_small_patch16_256_multires': _cfg(
+        input_size=(3, 256, 256),
         url='https://storage.googleapis.com/vit_models/augreg/'
             'S_16-i21k-300ep-lr_0.001-aug_light1-wd_0.03-do_0.0-sd_0.0--imagenet2012-steps_20k-lr_0.03-res_224.npz',
     ),
@@ -723,7 +724,7 @@ def vit_small_patch16_224(pretrained=False, **kwargs):
     return model
 
 @register_model
-def vit_small_patch16_224_multires(pretrained=False, **kwargs):
+def vit_small_patch16_256_multires(pretrained=False, **kwargs):
     """ ViT-Small (ViT-S/16)
     NOTE I've replaced my previous 'small' model definition and weights with the small variant from the DeiT paper
     """
@@ -734,7 +735,7 @@ def vit_small_patch16_224_multires(pretrained=False, **kwargs):
             num_pos_types=(16,16,4),
             embed_layer=LinearPatchEmbed,
             **kwargs)
-    model = _create_vision_transformer('vit_small_patch16_224_multires', pretrained=pretrained, **model_kwargs)
+    model = _create_vision_transformer('vit_small_patch16_256_multires', pretrained=pretrained, **model_kwargs)
     return model
 
 @register_model

@@ -18,6 +18,7 @@ from .constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from .distributed_sampler import OrderedDistributedSampler, RepeatAugSampler
 from .random_erasing import RandomErasing
 from .mixup import FastCollateMixup
+from .quadtree_super_vectorized import run_batch_quad_tree
 
 
 def fast_collate(batch):
@@ -67,8 +68,7 @@ def expand_to_chs(x, n):
 
 class PrefetchLoader:
 
-    def __init__(
-            self,
+    def __init__(self,
             loader,
             mean=IMAGENET_DEFAULT_MEAN,
             std=IMAGENET_DEFAULT_STD,
@@ -77,7 +77,12 @@ class PrefetchLoader:
             re_prob=0.,
             re_mode='const',
             re_count=1,
-            re_num_splits=0):
+            re_num_splits=0,
+            quadtree=False,
+            num_patches=None,
+            patch_size=None,
+            max_patch_size=None,
+            ):
 
         mean = expand_to_chs(mean, channels)
         std = expand_to_chs(std, channels)
@@ -87,6 +92,11 @@ class PrefetchLoader:
         self.mean = torch.tensor([x * 255 for x in mean]).cuda().view(normalization_shape)
         self.std = torch.tensor([x * 255 for x in std]).cuda().view(normalization_shape)
         self.fp16 = fp16
+        self.quadtree=quadtree
+        self.num_patches = num_patches
+        self.patch_size = patch_size
+        self.max_patch_size = max_patch_size
+
         if fp16:
             self.mean = self.mean.half()
             self.std = self.std.half()
@@ -110,6 +120,11 @@ class PrefetchLoader:
                     next_input = next_input.float().sub_(self.mean).div_(self.std)
                 if self.random_erasing is not None:
                     next_input = self.random_erasing(next_input)
+                if self.quadtree:
+                    next_input = run_batch_quad_tree(self.num_patches,
+                            min_patch_size=self.patch_size,
+                            max_patch_size=self.max_patch_size,
+                            images=next_input)
 
             if not first:
                 yield input, target
@@ -194,9 +209,10 @@ def create_loader(
         use_multi_epochs_loader=False,
         persistent_workers=True,
         worker_seeding='all',
-        to_quadtree=False,
-        patch_size=16,
-        num_patches=256,
+        quadtree=False,
+        patch_size=None,
+        max_patch_size=None,
+        num_patches=None,
 ):
     re_num_splits = 0
     if re_split:
@@ -223,9 +239,6 @@ def create_loader(
         re_count=re_count,
         re_num_splits=re_num_splits,
         separate=num_aug_splits > 0,
-        to_quadtree=to_quadtree,
-        patch_size=patch_size,
-        num_patches=num_patches,
     )
 
     sampler = None
@@ -276,7 +289,11 @@ def create_loader(
             re_prob=prefetch_re_prob,
             re_mode=re_mode,
             re_count=re_count,
-            re_num_splits=re_num_splits
+            re_num_splits=re_num_splits,
+            quadtree=quadtree,
+            num_patches=num_patches,
+            patch_size=patch_size,
+            max_patch_size=max_patch_size
         )
 
     return loader

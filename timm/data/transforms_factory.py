@@ -12,20 +12,6 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, DEF
 from timm.data.auto_augment import rand_augment_transform, augment_and_mix_transform, auto_augment_transform
 from timm.data.transforms import str_to_interp_mode, str_to_pil_interp, RandomResizedCropAndInterpolation, ToNumpy
 from timm.data.random_erasing import RandomErasing
-from timm.data.quadtorch import QuadTree
-
-
-class ToQuadTree:
-    def __init__(self, patch_size, num_patches, max_error=0):
-        self.patch_size = patch_size
-        self.num_patches = num_patches
-        self.max_error = max_error
-
-    def __call__(self, img):
-        patches, positions = QuadTree(img, num_patches=self.num_patches,
-                                      min_patch_size=self.patch_size, max_patch_size=None).run()
-        return torch.cat((patches, positions), axis=1)
-        #return img, positions
 
 
 def transforms_noaug_train(
@@ -198,11 +184,7 @@ def create_transform(
         re_num_splits=0,
         crop_pct=None,
         tf_preprocessing=False,
-        separate=False,
-        to_quadtree=False,
-        patch_size=16,
-        num_patches=256,
-):
+        separate=False):
 
     if isinstance(input_size, (tuple, list)):
         img_size = input_size[-2:]
@@ -250,8 +232,5 @@ def create_transform(
                 mean=mean,
                 std=std,
                 crop_pct=crop_pct)
-
-    if to_quadtree:
-        transform.transforms.append(ToQuadTree(patch_size=16, num_patches=num_patches))
 
     return transform
